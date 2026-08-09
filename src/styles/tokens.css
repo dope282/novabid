@@ -1,0 +1,62 @@
+/* ============================================================
+   NovaBid — Design Tokens
+   Загвар: Worthy Screens mockup-аас гаргаж авсан систем
+   ============================================================ */
+
+:root {
+  /* --- Brand & accents --- */
+  --nb-blue: #3346e6;
+  --nb-blue-shadow: #2333b8;
+  --nb-blue-ink: #2333b8;
+  --nb-green: #1fa55e;
+  --nb-green-bright: #3ddc84;
+  --nb-green-shadow: #157a44;
+  --nb-amber: #e8930c;
+  --nb-amber-ink: #8a5200;
+  --nb-gold: #ffd542;
+  --nb-red: #e5484d;
+  --nb-red-ink: #b3261e;
+  --nb-red-bright: #ff6b6b;
+
+  /* --- Neutrals (light) --- */
+  --nb-bg: #f4f2ec;
+  --nb-bg-page: #e4e1d8;
+  --nb-surface: #ffffff;
+  --nb-ink: #15171e;
+  --nb-ink-2: #6b6f7b;
+  --nb-ink-3: #9ba1ae;
+  --nb-dark: #0e1014;
+  --nb-dark-2: #16181f;
+
+  /* --- Hairlines / fills --- */
+  --nb-line: rgba(21, 23, 30, 0.14);
+  --nb-line-soft: rgba(21, 23, 30, 0.08);
+  --nb-fill: rgba(21, 23, 30, 0.06);
+
+  /* --- Type --- */
+  --nb-font-display: 'Rubik', 'Golos Text', system-ui, sans-serif;
+  --nb-font-body: 'Golos Text', system-ui, sans-serif;
+  --nb-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* --- Radii --- */
+  --nb-r-sm: 8px;
+  --nb-r-md: 12px;
+  --nb-r-lg: 16px;
+  --nb-r-xl: 26px;
+
+  /* --- Layout --- */
+  --nb-screen-w: 390px;
+}
+
+/* Dark theme overrides — <div data-theme="dark"> дээр идэвхжинэ */
+[data-theme='dark'] {
+  --nb-bg: #0e1014;
+  --nb-surface: #16181f;
+  --nb-ink: #f5f4f0;
+  --nb-ink-2: #9ba1ae;
+  --nb-ink-3: #6b6f7b;
+  --nb-blue: #7c8cff;
+  --nb-line: rgba(245, 244, 240, 0.1);
+  --nb-line-soft: rgba(245, 244, 240, 0.08);
+  --nb-fill: rgba(245, 244, 240, 0.06);
+}
