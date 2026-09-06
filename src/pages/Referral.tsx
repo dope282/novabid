@@ -1,13 +1,46 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { PageShell } from '../components/PageShell'
 import { PageHead } from '../components/PageHead'
-import { referralStats, referrals } from '../data/economy'
+import { api, type ReferralInfo } from '../lib/api'
 import { useUser } from '../user'
 
+/** "08.24" */
+function shortDate(ms: number): string {
+  const d = new Date(ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}.${p(d.getDate())}`
+}
+
 export function Referral() {
-  const { user } = useUser()
-  const referralCode = user?.referralCode ?? 'BAT-24KH'
+  const { user, isAuthed } = useUser()
+  const [info, setInfo] = useState<ReferralInfo | null>(null)
+  const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    if (!isAuthed) {
+      setLoading(false)
+      return
+    }
+    api
+      .referral()
+      .then((d) => alive && setInfo(d))
+      .catch(() => alive && setInfo(null))
+      .finally(() => alive && setLoading(false))
+    return () => {
+      alive = false
+    }
+  }, [isAuthed])
+
+  const referralCode = info?.code ?? user?.referralCode ?? '—'
+  const stats = [
+    { value: String(info?.stats.invited ?? 0), label: 'Урьсан', color: 'var(--nb-ink)' },
+    { value: `+${info?.stats.earned ?? 0}`, label: 'Олсон кредит', color: 'var(--nb-green)' },
+    { value: String(info?.stats.pending ?? 0), label: 'Хүлээгдэж буй', color: 'var(--nb-amber)' },
+  ]
+  const referrals = info?.referrals ?? []
 
   function copy() {
     navigator.clipboard?.writeText(referralCode).catch(() => {})
@@ -75,7 +108,7 @@ export function Referral() {
 
         {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 20, maxWidth: 460 }}>
-          {referralStats.map((s) => (
+          {stats.map((s) => (
             <div
               key={s.label}
               style={{
@@ -108,6 +141,23 @@ export function Referral() {
             maxWidth: 560,
           }}
         >
+          {loading && (
+            <div style={{ padding: '20px 0', textAlign: 'center', font: "500 13px 'Golos Text'", color: 'var(--nb-ink-2)' }}>
+              Ачаалж байна…
+            </div>
+          )}
+          {!loading && !isAuthed && (
+            <div style={{ padding: '20px 0', textAlign: 'center', font: "500 13px 'Golos Text'", color: 'var(--nb-ink-3)' }}>
+              Урилгын кодоо харахын тулд <Link to="/login" style={{ color: 'var(--nb-blue)' }}>нэвтэрнэ үү</Link>.
+            </div>
+          )}
+          {!loading && isAuthed && !referrals.length && (
+            <div style={{ padding: '20px 0', textAlign: 'center', font: "500 13px/1.6 'Golos Text'", color: 'var(--nb-ink-3)' }}>
+              Одоогоор хэн ч уриагүй байна.
+              <br />
+              Кодоо хуваалцаарай — урьсан хүн тань анхны кредитээ авмагц та 2 кредит авна.
+            </div>
+          )}
           {referrals.map((r, i) => (
             <div
               key={i}
@@ -137,16 +187,16 @@ export function Referral() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ font: "600 13.5px 'Golos Text'" }}>{r.name}</div>
                 <div style={{ font: "500 9px 'JetBrains Mono'", color: 'var(--nb-ink-2)', marginTop: 2 }}>
-                  {r.status}
+                  {r.rewarded ? 'КРЕДИТ АВСАН' : 'ХУДАЛДАН АВАЛТ ХИЙГЭЭГҮЙ'} · {shortDate(r.joinedAt)}
                 </div>
               </div>
               <span
                 style={{
                   font: "700 11px 'JetBrains Mono'",
-                  color: r.ok ? 'var(--nb-green)' : 'var(--nb-amber)',
+                  color: r.rewarded ? 'var(--nb-green)' : 'var(--nb-amber)',
                 }}
               >
-                {r.reward}
+                {r.rewarded ? '+2 кредит' : 'Хүлээгдэж буй'}
               </span>
             </div>
           ))}

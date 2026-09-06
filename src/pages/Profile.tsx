@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { PageShell } from '../components/PageShell'
+import { ProfileEditModal } from '../components/ProfileEditModal'
 import { useTheme } from '../theme'
 import { useUser } from '../user'
 
@@ -39,10 +40,11 @@ function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
 
 export function Profile() {
   const { theme, toggle } = useTheme()
-  const { user, loading, logout } = useUser()
+  const { user, loading, logout, refresh } = useUser()
   const navigate = useNavigate()
   const [push, setPush] = useState(true)
   const [haptic, setHaptic] = useState(true)
+  const [editing, setEditing] = useState(false)
 
   useEffect(() => {
     if (!loading && !user) navigate('/login')
@@ -74,7 +76,7 @@ export function Profile() {
               width: 64,
               height: 64,
               borderRadius: 18,
-              background: 'var(--nb-blue)',
+              background: user.avatarColor,
               color: '#fff',
               display: 'grid',
               placeItems: 'center',
@@ -85,7 +87,15 @@ export function Profile() {
             {(user.name || user.email)[0].toUpperCase()}
           </div>
           <div>
-            <div style={{ font: "800 22px 'Golos Text'" }}>{user.name || 'Хэрэглэгч'}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ font: "800 22px 'Golos Text'" }}>{user.name || 'Хэрэглэгч'}</span>
+              <button
+                onClick={() => setEditing(true)}
+                style={{ font: "600 12px 'Golos Text'", color: 'var(--nb-blue)', background: 'none', border: 'none', padding: 0 }}
+              >
+                Засах
+              </button>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
               <span style={{ font: "500 13px 'Golos Text'", color: 'var(--nb-ink-2)' }}>{user.email}</span>
               {user.verified ? (
@@ -212,6 +222,17 @@ export function Profile() {
           Гарах
         </button>
       </div>
+
+      {editing && (
+        <ProfileEditModal
+          user={user}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false)
+            void refresh()
+          }}
+        />
+      )}
     </PageShell>
   )
 }

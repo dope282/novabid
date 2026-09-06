@@ -6,10 +6,17 @@ import { StageLadder } from '../components/StageLadder'
 import { FirstBidModal } from '../components/FirstBidModal'
 import { useLiveAuction } from '../hooks/useLiveAuction'
 import { useUser } from '../user'
-import { formatTugrik, pad2, stageLabel } from '../lib/format'
+import { formatCountdown, formatTugrik, pad2, stageLabel } from '../lib/format'
+import { imageSrc } from '../lib/api'
 
-const FEED_COLORS = ['#3346E6', '#15171E', '#E8930C', '#1FA55E', '#E5484D']
 const FIRST_BID_KEY = 'novabid-first-bid-ack'
+
+/** Timestamp → "14:05" (хуваарьт) */
+function clockOf(ms: number | null): string {
+  if (!ms) return '—'
+  const d = new Date(ms)
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
 
 /** Timestamp → "Xс өмнө" */
 function ago(at: number): string {
@@ -98,7 +105,10 @@ export function AuctionDetail() {
     )
   }
 
-  const timePct = Math.min(100, (live.seconds / live.softClose) * 100).toFixed(1)
+  // Сэргэх цонхны үлдэгдэл — bid ирэх бүрд 100% болж дүүрнэ
+  const timePct = Math.min(100, (live.seconds / live.roundResetSec) * 100).toFixed(1)
+  /** Ноорог лот (админ л хардаг) — timer ажиллаагүй, bid хийх боломжгүй */
+  const notStarted = lot.status === 'scheduled'
 
   return (
     <PageShell>
@@ -113,38 +123,79 @@ export function AuctionDetail() {
         </div>
 
         <div className="nb-detail">
-          {/* ---- Left: media + info ---- */}
-          <div>
+          {/* ---- Бараа: зураг, нэр, тайлбар ---- */}
+          <div className="nb-detail-media">
             <div style={{ borderRadius: 20, overflow: 'hidden', border: '0.5px solid var(--nb-line)', background: 'var(--nb-surface)' }}>
-              <ImageSlot label={lot.title} height={420} />
-            </div>
-
-            <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} style={{ width: 84, height: 84, borderRadius: 12, overflow: 'hidden', border: i === 0 ? '1.5px solid var(--nb-blue)' : '0.5px solid var(--nb-line)' }}>
-                  <ImageSlot label="" height={84} />
-                </div>
-              ))}
+              <ImageSlot label={lot.title} src={imageSrc(lot.image)} height={420} eager />
             </div>
 
             <h1 style={{ font: "800 30px/1.2 'Golos Text'", letterSpacing: '-.01em', margin: '28px 0 0' }}>
               {lot.subtitle ?? lot.title}
             </h1>
-            <p style={{ font: "400 15px/1.65 'Golos Text'", color: 'var(--nb-ink-2)', marginTop: 12 }}>
-              Албан ёсны баталгаат бараа. Ялсан тохиолдолд эцсийн үнээр (таны сүүлийн bid) худалдан авна.
-              Хүргэлт УБ хотод 1–3 хоног, орон нутагт 3–7 хоног.
+            <p style={{ font: "400 15px/1.65 'Golos Text'", color: 'var(--nb-ink-2)', marginTop: 12, whiteSpace: 'pre-line' }}>
+              {lot.description?.trim() ||
+                'Албан ёсны баталгаат бараа. Ялсан тохиолдолд эцсийн үнээр (таны сүүлийн bid) худалдан авна. Хүргэлт УБ хотод 1–3 хоног, орон нутагт 3–7 хоног.'}
             </p>
+          </div>
 
+          {/* ---- Явц, хуваарь, сүүлийн bid-үүд ----
+               Гар утсанд timer-ийн ДАРАА байрлана (CSS grid-area) */}
+          <div className="nb-detail-info">
             {/* Stage ladder */}
             <div style={{ marginTop: 28 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-                <span className="nb-eyebrow">Шатны явц</span>
+                <span className="nb-eyebrow">Round-ын явц</span>
                 <span style={{ font: "700 12px 'JetBrains Mono'", color: 'var(--nb-ink)' }}>
                   {pad2(lot.currentStage)} / {pad2(lot.totalStages)}
                 </span>
               </div>
               <StageLadder current={lot.currentStage} total={lot.totalStages} urgent={live.urgent} />
             </div>
+
+            {/* Round хуваарь — хэзээ эхлээд хэзээ дуусах */}
+            {!!live.schedule.length && (
+              <div style={{ marginTop: 24 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                  <span className="nb-eyebrow">Round-ын хуваарь</span>
+                  <span style={{ font: "500 10px 'JetBrains Mono'", color: 'var(--nb-ink-3)' }}>
+                    BID БОСГО ХҮРВЭЛ ЭРТ ШИЛЖИНЭ
+                  </span>
+                </div>
+                <div
+                  style={{
+                    background: 'var(--nb-surface)',
+                    border: '0.5px solid var(--nb-line)',
+                    borderRadius: 12,
+                    padding: '4px 14px',
+                  }}
+                >
+                  {live.schedule.map((s) => {
+                    const cur = s.round === lot.currentStage
+                    return (
+                      <div
+                        key={s.round}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '9px 0',
+                          borderBottom: s.round < lot.totalStages ? '0.5px solid var(--nb-line-soft)' : 'none',
+                          opacity: s.done ? 0.45 : 1,
+                        }}
+                      >
+                        <span style={{ font: "700 11px 'JetBrains Mono'", color: cur ? 'var(--nb-amber)' : 'var(--nb-ink-2)' }}>
+                          ROUND {pad2(s.round)}
+                          {cur && ' · ЯВАГДАЖ БУЙ'}
+                        </span>
+                        <span className="nb-tnum" style={{ font: "600 11.5px 'JetBrains Mono'", color: cur ? 'var(--nb-ink)' : 'var(--nb-ink-2)' }}>
+                          {s.done ? 'ДУУССАН' : `${clockOf(s.startsAt)} – ${clockOf(s.endsAt)}`}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Recent bids */}
             <div style={{ marginTop: 32 }}>
@@ -159,7 +210,7 @@ export function AuctionDetail() {
                 )}
                 {live.feed.map((f, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottom: i < live.feed.length - 1 ? '0.5px solid var(--nb-line-soft)' : 'none' }}>
-                    <div style={{ width: 30, height: 30, borderRadius: 9, background: FEED_COLORS[i % FEED_COLORS.length], color: '#fff', display: 'grid', placeItems: 'center', font: "800 12px 'Rubik', sans-serif", flex: 'none' }}>
+                    <div style={{ width: 30, height: 30, borderRadius: 9, background: f.color, color: '#fff', display: 'grid', placeItems: 'center', font: "800 12px 'Rubik', sans-serif", flex: 'none' }}>
                       {(f.user[0] ?? '?').toUpperCase()}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -187,22 +238,28 @@ export function AuctionDetail() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: live.closed ? 'rgba(155,161,174,.12)' : 'rgba(61,220,132,.12)', border: `0.5px solid ${live.closed ? 'rgba(155,161,174,.35)' : 'rgba(61,220,132,.35)'}`, borderRadius: 7, padding: '5px 9px' }}>
-                  {!live.closed && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#3DDC84', animation: 'nb-live-dot 1.4s infinite' }} />}
-                  <span style={{ font: "700 9.5px 'JetBrains Mono'", letterSpacing: '.1em', color: live.closed ? '#9BA1AE' : '#3DDC84' }}>
-                    {live.closed ? 'ХААГДСАН' : 'LIVE'}
+                  {!live.closed && !notStarted && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#3DDC84', animation: 'nb-live-dot 1.4s infinite' }} />}
+                  <span style={{ font: "700 9.5px 'JetBrains Mono'", letterSpacing: '.1em', color: live.closed ? '#9BA1AE' : notStarted ? '#E8930C' : '#3DDC84' }}>
+                    {live.closed ? 'ХААГДСАН' : notStarted ? 'НООРОГ' : 'LIVE'}
                   </span>
                 </div>
               </div>
 
               {/* Countdown */}
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 6, margin: '22px 0 4px' }}>
-                <span className="nb-tnum" style={{ font: "800 68px 'Rubik', sans-serif", letterSpacing: '-.02em', color: live.urgent && !live.closed ? '#FF6B6B' : '#F5F4F0', lineHeight: 1, borderRadius: 16, animation: live.pulse ? 'nb-soft-pulse .85s ease-out' : 'none' }}>
-                  {live.seconds.toFixed(1)}
+                <span className="nb-tnum nb-countdown" style={{ letterSpacing: '-.02em', color: live.urgent && !live.closed ? '#FF6B6B' : '#F5F4F0', lineHeight: 1, borderRadius: 16, animation: live.pulse ? 'nb-soft-pulse .85s ease-out' : 'none' }}>
+                  {formatCountdown(live.seconds)}
                 </span>
-                <span style={{ font: "700 13px 'JetBrains Mono'", color: '#9BA1AE' }}>СЕК</span>
+                <span style={{ font: "700 13px 'JetBrains Mono'", color: '#9BA1AE' }}>
+                  {live.seconds < 60 ? 'СЕК' : ''}
+                </span>
               </div>
               <div style={{ textAlign: 'center', font: "700 9.5px 'JetBrains Mono'", letterSpacing: '.12em', color: '#9BA1AE', marginBottom: 14 }}>
-                {stageLabel(lot.currentStage, lot.totalStages)} · SOFT CLOSE {live.softClose} СЕК
+                {stageLabel(lot.currentStage, lot.totalStages)} ·{' '}
+                {lot.roundBidsRequired === null
+                  ? `${lot.roundBids} BID`
+                  : `${lot.roundBids}/${lot.roundBidsRequired} BID`}
+                {!live.closed && ' · ТЭГЛЭВЭЛ СҮҮЛИЙН BID ЯЛНА'}
               </div>
 
               <div style={{ height: 4, background: 'rgba(245,244,240,.12)', borderRadius: 2, overflow: 'hidden' }}>
@@ -210,13 +267,26 @@ export function AuctionDetail() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10 }}>
                 <span style={{ font: "500 9px 'JetBrains Mono'", color: '#6B6F7B' }}>
-                  <span style={{ color: '#3DDC84' }}>●</span> СЕРВЕР SYNC
+                  <span style={{ color: live.connected ? '#3DDC84' : '#E8930C' }}>●</span>{' '}
+                  {live.connected ? 'СЕРВЕР SYNC' : 'ДАХИН ХОЛБОГДОЖ БАЙНА'}
                 </span>
                 <span style={{ font: "500 9px 'JetBrains Mono'", color: '#6B6F7B' }}>{lot.bidCount} BID</span>
               </div>
 
               {/* Bid buttons / states */}
-              {live.closed ? (
+              {notStarted ? (
+                /* Ноорог лот — зөвхөн админ харна. Bid товч гаргавал төөрөгдүүлнэ. */
+                <div style={{ marginTop: 20, textAlign: 'center' }}>
+                  <div style={{ font: "600 13px 'Golos Text'", color: '#E8930C', marginBottom: 6 }}>
+                    Аукцион хараахан эхлээгүй.
+                  </div>
+                  <div style={{ font: "500 11.5px 'JetBrains Mono'", color: '#9BA1AE' }}>
+                    {lot.startsAt
+                      ? `ЭХЛЭХ: ${new Date(lot.startsAt).toLocaleString('en-CA', { hour12: false }).slice(0, 16)}`
+                      : 'АДМИН ГАРААР ИДЭВХЖҮҮЛНЭ'}
+                  </div>
+                </div>
+              ) : live.closed ? (
                 <div style={{ marginTop: 20, textAlign: 'center' }}>
                   <div style={{ font: "600 13px 'Golos Text'", color: '#9BA1AE', marginBottom: 12 }}>Энэ аукцион хаагдсан.</div>
                   <Link to="/" className="nb-btn nb-btn-primary" style={{ display: 'block', padding: '13px 0' }}>

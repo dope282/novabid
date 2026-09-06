@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { ApiLot } from '../lib/api'
-import { formatClock, formatTugrik, stageLabel } from '../lib/format'
+import { imageSrc, type ApiLot } from '../lib/api'
+import { formatCountdown, formatTugrik, stageLabel } from '../lib/format'
 import { ImageSlot } from './ImageSlot'
 
 /** Аукционы лотын карт (вэб grid) */
@@ -10,7 +10,8 @@ export function LotCard({ lot, serverOffset = 0 }: { lot: ApiLot; serverOffset?:
   const [hover, setHover] = useState(false)
 
   const secondsLeft = lot.endsAt ? Math.max(0, (lot.endsAt - (Date.now() + serverOffset)) / 1000) : 0
-  const urgent = lot.status === 'live' && secondsLeft < 15
+  // Round-ын сүүлийн минут (soft close байхгүй тул сунахгүй)
+  const urgent = lot.status === 'live' && secondsLeft < 60
   const pct = Math.round((lot.currentStage / lot.totalStages) * 100)
   const canBid = lot.gating?.canBid
   const scheduled = lot.status === 'scheduled'
@@ -36,7 +37,7 @@ export function LotCard({ lot, serverOffset = 0 }: { lot: ApiLot; serverOffset?:
       }}
     >
       <div style={{ position: 'relative', height: 168, overflow: 'hidden' }}>
-        <ImageSlot height={168} label={lot.title} />
+        <ImageSlot height={168} label={lot.title} src={imageSrc(lot.image)} />
         <div
           style={{
             position: 'absolute',
@@ -70,7 +71,7 @@ export function LotCard({ lot, serverOffset = 0 }: { lot: ApiLot; serverOffset?:
           {urgent && !scheduled && (
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#fff', animation: 'nb-live-dot 1.4s infinite' }} />
           )}
-          {scheduled ? 'УДАХГҮЙ' : formatClock(secondsLeft)}
+          {scheduled ? 'УДАХГҮЙ' : formatCountdown(secondsLeft)}
         </div>
       </div>
 

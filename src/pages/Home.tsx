@@ -3,18 +3,20 @@ import { Link } from 'react-router-dom'
 import { PageShell } from '../components/PageShell'
 import { Ticker } from '../components/Ticker'
 import { LotCard } from '../components/LotCard'
+import { ClosedLotCard } from '../components/ClosedLotCard'
 import { VotingPoll } from '../components/VotingPoll'
-import { api, type ApiLot } from '../lib/api'
+import { api, type ApiLot, type ClosedLot } from '../lib/api'
 
 const stats = [
   { value: '1₮', label: 'Эхлэх үнэ' },
   { value: '+1/2/3₮', label: 'Bid тутамд' },
   { value: '100%', label: 'Кредит → Token' },
-  { value: '15с', label: 'Soft close' },
+  { value: 'Round', label: 'бүр өөр хугацаатай' },
 ]
 
 export function Home() {
   const [lots, setLots] = useState<ApiLot[]>([])
+  const [closed, setClosed] = useState<ClosedLot[]>([])
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -23,9 +25,10 @@ export function Home() {
     let alive = true
     async function fetchLots() {
       try {
-        const { lots, serverNow } = await api.lots()
+        const { lots, closed, serverNow } = await api.lots()
         if (!alive) return
         setLots(lots)
+        setClosed(closed)
         setOffset(serverNow - Date.now())
         setError(null)
       } catch {
@@ -63,23 +66,26 @@ export function Home() {
                 gap: 7,
                 font: "700 11px 'JetBrains Mono'",
                 letterSpacing: '.1em',
-                color: 'var(--nb-blue-ink)',
-                background: 'rgba(51,70,230,.09)',
-                border: '0.5px solid rgba(51,70,230,.2)',
+                color: liveLots.length ? 'var(--nb-blue-ink)' : 'var(--nb-ink-2)',
+                background: liveLots.length ? 'rgba(51,70,230,.09)' : 'var(--nb-fill)',
+                border: `0.5px solid ${liveLots.length ? 'rgba(51,70,230,.2)' : 'var(--nb-line)'}`,
                 borderRadius: 20,
                 padding: '6px 12px',
               }}
             >
+              {/* Идэвхтэй лот байхгүй үед "live" цэг анивчих нь төөрөгдүүлнэ */}
               <span
                 style={{
                   width: 6,
                   height: 6,
                   borderRadius: '50%',
-                  background: 'var(--nb-green-bright)',
-                  animation: 'nb-live-dot 1.4s infinite',
+                  background: liveLots.length ? 'var(--nb-green-bright)' : 'var(--nb-ink-3)',
+                  animation: liveLots.length ? 'nb-live-dot 1.4s infinite' : 'none',
                 }}
               />
-              {liveLots.length} ДУУДЛАГА ХУДАЛДАА ЯГ ОДОО ИДЭВХТЭЙ
+              {liveLots.length
+                ? `${liveLots.length} ДУУДЛАГА ХУДАЛДАА ЯГ ОДОО ИДЭВХТЭЙ`
+                : 'ИДЭВХТЭЙ ЛОТ АЛГА — УДАХГҮЙ НЭЭГДЭНЭ'}
             </span>
 
             <h1
@@ -204,6 +210,49 @@ export function Home() {
             >
               {error}
             </div>
+          ) : !liveLots.length ? (
+            <div
+              style={{
+                padding: '48px 24px',
+                borderRadius: 16,
+                border: '1px dashed var(--nb-line)',
+                background: 'var(--nb-surface)',
+                textAlign: 'center',
+              }}
+            >
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  margin: '0 auto 14px',
+                  display: 'grid',
+                  placeItems: 'center',
+                  background: 'rgba(232,147,12,.12)',
+                }}
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="8.5" stroke="var(--nb-amber)" strokeWidth="1.8" />
+                  <path d="M12 7.5V12l3 2" stroke="var(--nb-amber)" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </div>
+              <div style={{ font: "800 19px 'Golos Text'", letterSpacing: '-.01em', marginBottom: 6 }}>
+                Идэвхтэй дуудлага худалдаа алга
+              </div>
+              <div style={{ font: "400 14px/1.6 'Golos Text'", color: 'var(--nb-ink-2)', maxWidth: 420, margin: '0 auto' }}>
+                Одоогоор явагдаж буй лот байхгүй байна. Дараагийн лот удахгүй нээгдэнэ — доорх
+                санал хураалтад оролцвол дараагийн барааг та сонгоно.
+              </div>
+              {!!closed.length && (
+                <a
+                  href="#closed"
+                  className="nb-btn nb-btn-ghost"
+                  style={{ marginTop: 18, display: 'inline-flex' }}
+                >
+                  Өмнөх дуудлага худалдаа үзэх
+                </a>
+              )}
+            </div>
           ) : (
             <div className="nb-grid">
               {liveLots.map((lot) => (
@@ -213,6 +262,28 @@ export function Home() {
           )}
         </div>
       </section>
+
+      {/* Дууссан аукционууд */}
+      {!!closed.length && (
+        <section id="closed" className="nb-section" style={{ background: 'var(--nb-fill)' }}>
+          <div className="nb-container">
+            <div style={{ marginBottom: 24 }}>
+              <div className="nb-eyebrow">Архив</div>
+              <h2 style={{ font: "800 28px 'Golos Text'", letterSpacing: '-.01em', margin: '6px 0 0' }}>
+                Өмнөх дуудлага худалдаа
+              </h2>
+              <p style={{ font: "400 14px 'Golos Text'", color: 'var(--nb-ink-2)', margin: '6px 0 0' }}>
+                Сүүлд хаагдсан {closed.length} лот — эцсийн үнэ, ялагчийн хамт.
+              </p>
+            </div>
+            <div className="nb-grid">
+              {closed.map((lot) => (
+                <ClosedLotCard key={lot.id} lot={lot} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
     </PageShell>
   )
 }

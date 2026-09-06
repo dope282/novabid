@@ -1,11 +1,39 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PageShell } from '../components/PageShell'
 import { PageHead } from '../components/PageHead'
-import { tokenHistory } from '../data/economy'
+import { api, type TokenEntry } from '../lib/api'
 import { useUser } from '../user'
 
+/** "08.24" */
+function shortDate(ms: number): string {
+  const d = new Date(ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}.${p(d.getDate())}`
+}
+
 export function Tokens() {
-  const { tokens } = useUser()
+  const { tokens, isAuthed } = useUser()
+  const [entries, setEntries] = useState<TokenEntry[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let alive = true
+    if (!isAuthed) {
+      setEntries([])
+      setLoading(false)
+      return
+    }
+    api
+      .tokenHistory()
+      .then(({ entries }) => alive && setEntries(entries))
+      .catch(() => alive && setEntries([]))
+      .finally(() => alive && setLoading(false))
+    return () => {
+      alive = false
+    }
+  }, [isAuthed])
+
   return (
     <PageShell>
       <div className="nb-container" style={{ padding: '40px 24px 64px' }}>
@@ -29,49 +57,68 @@ export function Tokens() {
                 padding: '2px 16px',
               }}
             >
-              {tokenHistory.map((x, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '14px 0',
-                    borderBottom: i < tokenHistory.length - 1 ? '0.5px solid var(--nb-line-soft)' : 'none',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div
+              {loading ? (
+                <div style={{ padding: '28px 0', textAlign: 'center', font: "500 13px 'Golos Text'", color: 'var(--nb-ink-2)' }}>
+                  Ачаалж байна…
+                </div>
+              ) : !isAuthed ? (
+                <div style={{ padding: '28px 0', textAlign: 'center', font: "500 13px 'Golos Text'", color: 'var(--nb-ink-3)' }}>
+                  Token хөдөлгөөнөө харахын тулд <Link to="/login" style={{ color: 'var(--nb-blue)' }}>нэвтэрнэ үү</Link>.
+                </div>
+              ) : !entries.length ? (
+                <div style={{ padding: '28px 0', textAlign: 'center', font: "500 13px/1.6 'Golos Text'", color: 'var(--nb-ink-3)' }}>
+                  Token хөдөлгөөн алга.
+                  <br />
+                  Аукционд оролцоод ялаагүй тохиолдолд зарцуулсан кредит бүр Token болж эргэж ирнэ.
+                </div>
+              ) : (
+                entries.map((x, i) => (
+                  <div
+                    key={x.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '14px 0',
+                      borderBottom: i < entries.length - 1 ? '0.5px solid var(--nb-line-soft)' : 'none',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 9,
+                          display: 'grid',
+                          placeItems: 'center',
+                          font: "800 13px 'Rubik', sans-serif",
+                          flex: 'none',
+                          background: x.positive ? 'rgba(31,165,94,.12)' : 'rgba(229,72,77,.1)',
+                          color: x.positive ? 'var(--nb-green)' : 'var(--nb-red)',
+                        }}
+                      >
+                        {x.positive ? '↑' : '↓'}
+                      </div>
+                      <div>
+                        <div style={{ font: "600 13.5px 'Golos Text'" }}>{x.title}</div>
+                        <div style={{ font: "500 10px 'JetBrains Mono'", color: 'var(--nb-ink-2)', marginTop: 2 }}>
+                          {x.kind} · {shortDate(x.createdAt)}
+                        </div>
+                      </div>
+                    </div>
+                    <span
+                      className="nb-tnum"
                       style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 9,
-                        display: 'grid',
-                        placeItems: 'center',
-                        font: "800 13px 'Rubik', sans-serif",
-                        background: x.positive ? 'rgba(31,165,94,.12)' : 'rgba(229,72,77,.1)',
+                        font: "700 14px 'JetBrains Mono'",
                         color: x.positive ? 'var(--nb-green)' : 'var(--nb-red)',
                       }}
                     >
-                      {x.icon}
-                    </div>
-                    <div>
-                      <div style={{ font: "600 13.5px 'Golos Text'" }}>{x.title}</div>
-                      <div style={{ font: "500 10px 'JetBrains Mono'", color: 'var(--nb-ink-2)', marginTop: 2 }}>
-                        {x.meta}
-                      </div>
-                    </div>
+                      {x.positive ? '+' : ''}
+                      {x.tokens}
+                    </span>
                   </div>
-                  <span
-                    style={{
-                      font: "700 14px 'JetBrains Mono'",
-                      color: x.positive ? 'var(--nb-green)' : 'var(--nb-red)',
-                    }}
-                  >
-                    {x.amount}
-                  </span>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 

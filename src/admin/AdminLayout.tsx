@@ -47,6 +47,35 @@ const nav: { to: string; label: string; end?: boolean; icon: React.ReactNode }[]
       </svg>
     ),
   },
+  {
+    to: '/admin/packs',
+    label: 'Кредит багц',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <path d="M12 3 3.5 7.5v9L12 21l8.5-4.5v-9L12 3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M3.5 7.5 12 12l8.5-4.5M12 12v9" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    to: '/admin/shop',
+    label: 'Дэлгүүр',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <path d="M4 8h16l-1.2 11.2a1.5 1.5 0 0 1-1.5 1.3H6.7a1.5 1.5 0 0 1-1.5-1.3L4 8Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M8.5 8V6a3.5 3.5 0 0 1 7 0v2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    to: '/admin/polls',
+    label: 'Санал хураалт',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <path d="M6 20V10M12 20V4M18 20v-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    ),
+  },
 ]
 
 export function AdminLayout() {

@@ -1,6 +1,7 @@
 import { Link, NavLink } from 'react-router-dom'
-import { CreditBadge, TokenBadge } from './Badges'
+import { CreditBadge } from './Badges'
 import { ThemeToggle } from './ThemeToggle'
+import { MobileMenu } from './MobileMenu'
 import { useUser } from '../user'
 
 const navItems = [
@@ -13,7 +14,7 @@ const navItems = [
 
 /** Вэб сайтын дээд навигаци */
 export function SiteHeader() {
-  const { credits, tokens, isAuthed } = useUser()
+  const { credits, isAuthed } = useUser()
   return (
     <header
       style={{
@@ -75,22 +76,26 @@ export function SiteHeader() {
 
         {/* Balances + auth */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {/* Token үлдэгдэл энд харагдахгүй — Token хуудсанд бүрэн харагдана */}
           {isAuthed && (
             <span className="nb-balances" style={{ display: 'flex', gap: 8 }}>
               <CreditBadge value={credits} empty={credits === 0} />
-              <TokenBadge value={tokens} />
             </span>
           )}
           <ThemeToggle />
-          {isAuthed ? (
-            <Link to="/profile" className="nb-btn nb-btn-primary" style={{ padding: '9px 16px' }}>
-              Профайл
-            </Link>
-          ) : (
-            <Link to="/login" className="nb-btn nb-btn-primary" style={{ padding: '9px 16px' }}>
-              Нэвтрэх
-            </Link>
-          )}
+          {/* Профайл/Нэвтрэх товч нарийн дэлгэцэд hamburger цэс рүү шилжинэ */}
+          <span className="nb-auth-btn">
+            {isAuthed ? (
+              <Link to="/profile" className="nb-btn nb-btn-primary" style={{ padding: '9px 16px' }}>
+                Профайл
+              </Link>
+            ) : (
+              <Link to="/login" className="nb-btn nb-btn-primary" style={{ padding: '9px 16px' }}>
+                Нэвтрэх
+              </Link>
+            )}
+          </span>
+          <MobileMenu items={navItems} />
         </div>
       </div>
     </header>

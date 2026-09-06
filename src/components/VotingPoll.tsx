@@ -1,49 +1,83 @@
-import { useMemo, useState } from 'react'
-import { POLL_MAX_PICKS, pollCandidates, pollClosesIn } from '../data/poll'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { api, ApiError, type ApiPoll } from '../lib/api'
+import { useUser } from '../user'
+
+/** closesAt → "18 цаг 24 мин" */
+function untilLabel(closesAt: number | null): string {
+  if (!closesAt) return '—'
+  const ms = closesAt - Date.now()
+  if (ms <= 0) return 'Хаагдсан'
+  const h = Math.floor(ms / 3600_000)
+  const m = Math.floor((ms % 3600_000) / 60_000)
+  return h > 0 ? `${h} цаг ${m} мин` : `${m} мин`
+}
 
 /**
  * Дараагийн дуудлага худалдаанд оруулах барааг санал хураах виджет.
- * Хэрэглэгч POLL_MAX_PICKS хүртэл бараа сонгож санал өгнө — live хувиар шинэчлэгдэнэ.
+ * Нэр дэвшигчид болон санал нь серверт хадгалагдана — админаас удирдана.
  */
 export function VotingPoll() {
-  const base = useMemo(() => Object.fromEntries(pollCandidates.map((c) => [c.id, c.votes])), [])
-  const [votes, setVotes] = useState<Record<string, number>>(base)
-  const [picked, setPicked] = useState<string[]>([])
+  const navigate = useNavigate()
+  const { isAuthed } = useUser()
 
-  const total = Object.values(votes).reduce((s, v) => s + v, 0)
-  const remaining = POLL_MAX_PICKS - picked.length
+  const [poll, setPoll] = useState<ApiPoll | null>(null)
+  const [picked, setPicked] = useState<number[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
-  // Тэргүүлж буй 2 нэр дэвшигч (одоогийн саналаар)
-  const leaders = useMemo(
-    () =>
-      [...pollCandidates]
-        .sort((a, b) => votes[b.id] - votes[a.id])
-        .slice(0, POLL_MAX_PICKS)
-        .map((c) => c.id),
-    [votes],
-  )
+  const load = useCallback(async () => {
+    try {
+      const { poll, myPicks } = await api.poll()
+      setPoll(poll)
+      setPicked(myPicks)
+    } catch {
+      setPoll(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
-  function toggle(id: string) {
-    setPicked((prev) => {
-      const has = prev.includes(id)
-      if (has) {
-        // Дахин дарвал саналаа буцаана
-        setVotes((v) => ({ ...v, [id]: v[id] - 1 }))
-        return prev.filter((x) => x !== id)
-      }
-      if (prev.length >= POLL_MAX_PICKS) {
-        // Ганц сонголттой үед өөр бараа дарвал сонголтоо солино
-        if (POLL_MAX_PICKS === 1) {
-          const old = prev[0]
-          setVotes((v) => ({ ...v, [old]: v[old] - 1, [id]: v[id] + 1 }))
-          return [id]
-        }
-        return prev
-      }
-      setVotes((v) => ({ ...v, [id]: v[id] + 1 }))
-      return [...prev, id]
-    })
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const total = poll?.totalVotes ?? 0
+
+  // Тэргүүлж буй нэр дэвшигчид (одоогийн саналаар)
+  const leaders = useMemo(() => {
+    if (!poll) return [] as number[]
+    return [...poll.candidates]
+      .sort((a, b) => b.votes - a.votes)
+      .slice(0, poll.maxPicks)
+      .map((c) => c.id)
+  }, [poll])
+
+  async function vote(candidateId: number) {
+    if (!isAuthed) {
+      navigate('/login')
+      return
+    }
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await api.pollVote(candidateId)
+      setPoll(res.poll)
+      setPicked(res.myPicks)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Санал өгч чадсангүй')
+    } finally {
+      setBusy(false)
+    }
   }
+
+  // Ачаалж байх үед эсвэл идэвхтэй санал хураалт байхгүй бол виджет харагдахгүй
+  if (loading || !poll) return null
+
+  const closed = !!poll.closesAt && poll.closesAt <= Date.now()
+  const remaining = poll.maxPicks - picked.length
 
   return (
     <div
@@ -79,24 +113,30 @@ export function VotingPoll() {
       </div>
 
       <div style={{ font: "800 17px/1.3 'Golos Text'", letterSpacing: '-.01em', margin: '14px 0 4px' }}>
-        Дараагийн лотыг та сонго
+        {poll.title}
       </div>
       <div style={{ font: "400 12.5px/1.5 'Golos Text'", color: 'var(--nb-ink-2)', marginBottom: 16 }}>
-        Хамгийн олон санал авсан <b style={{ color: 'var(--nb-ink)' }}>1 бараа</b> дараагийн дуудлага
-        худалдаанд орно. {picked.length === 0 ? 'Та ганц бараанд санал өгнө.' : 'Таны санал бүртгэгдлээ ✓'}
+        {poll.subtitle}{' '}
+        {closed
+          ? 'Санал хураалт хаагдсан.'
+          : !isAuthed
+            ? 'Санал өгөхийн тулд нэвтэрнэ үү.'
+            : picked.length === 0
+              ? `Та ${poll.maxPicks} бараанд санал өгнө.`
+              : 'Таны санал бүртгэгдлээ ✓'}
       </div>
 
       {/* Candidates */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {pollCandidates.map((c) => {
-          const pct = total > 0 ? Math.round((votes[c.id] / total) * 100) : 0
+        {poll.candidates.map((c) => {
+          const pct = total > 0 ? Math.round((c.votes / total) * 100) : 0
           const isPicked = picked.includes(c.id)
           const isLeader = leaders.includes(c.id)
-          const disabled = !isPicked && remaining === 0 && POLL_MAX_PICKS > 1
+          const disabled = closed || busy || (!isPicked && remaining === 0 && poll.maxPicks > 1)
           return (
             <button
               key={c.id}
-              onClick={() => toggle(c.id)}
+              onClick={() => vote(c.id)}
               disabled={disabled}
               style={{
                 position: 'relative',
@@ -107,7 +147,7 @@ export function VotingPoll() {
                 borderRadius: 12,
                 padding: '11px 13px',
                 cursor: disabled ? 'not-allowed' : 'pointer',
-                opacity: disabled ? 0.55 : 1,
+                opacity: disabled && !isPicked ? 0.55 : 1,
                 color: 'var(--nb-ink)',
               }}
             >
@@ -163,9 +203,11 @@ export function VotingPoll() {
                       </span>
                     )}
                   </div>
-                  <div style={{ font: "500 9.5px 'JetBrains Mono'", color: 'var(--nb-ink-3)', marginTop: 2 }}>
-                    {c.tag.toUpperCase()}
-                  </div>
+                  {c.tag && (
+                    <div style={{ font: "500 9.5px 'JetBrains Mono'", color: 'var(--nb-ink-3)', marginTop: 2 }}>
+                      {c.tag.toUpperCase()}
+                    </div>
+                  )}
                 </div>
 
                 <span className="nb-tnum" style={{ font: "700 13px 'JetBrains Mono'", color: 'var(--nb-ink)', flex: 'none' }}>
@@ -176,6 +218,10 @@ export function VotingPoll() {
           )
         })}
       </div>
+
+      {error && (
+        <div style={{ marginTop: 10, font: "500 11.5px 'Golos Text'", color: 'var(--nb-red)' }}>{error}</div>
+      )}
 
       <div
         style={{
@@ -188,7 +234,7 @@ export function VotingPoll() {
         }}
       >
         <span>Хаагдах хүртэл</span>
-        <span style={{ color: 'var(--nb-ink-2)' }}>{pollClosesIn}</span>
+        <span style={{ color: 'var(--nb-ink-2)' }}>{untilLabel(poll.closesAt)}</span>
       </div>
     </div>
   )

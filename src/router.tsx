@@ -9,6 +9,7 @@ import { Shop } from './pages/Shop'
 import { Profile } from './pages/Profile'
 import { Referral } from './pages/Referral'
 import { Placeholder } from './pages/Placeholder'
+import { NotFound } from './pages/NotFound'
 import { AdminLayout } from './admin/AdminLayout'
 import { AdminLogin } from './admin/AdminLogin'
 import { RequireAdmin } from './admin/RequireAdmin'
@@ -16,6 +17,9 @@ import { AdminOverview } from './admin/pages/AdminOverview'
 import { AdminAuctions } from './admin/pages/AdminAuctions'
 import { AdminUsers } from './admin/pages/AdminUsers'
 import { AdminPayments } from './admin/pages/AdminPayments'
+import { AdminPolls } from './admin/pages/AdminPolls'
+import { AdminShop } from './admin/pages/AdminShop'
+import { AdminPacks } from './admin/pages/AdminPacks'
 
 export const router = createBrowserRouter(
   [
@@ -45,8 +49,14 @@ export const router = createBrowserRouter(
         { path: 'auctions', element: <AdminAuctions /> },
         { path: 'users', element: <AdminUsers /> },
         { path: 'payments', element: <AdminPayments /> },
+        { path: 'packs', element: <AdminPacks /> },
+        { path: 'polls', element: <AdminPolls /> },
+        { path: 'shop', element: <AdminShop /> },
       ],
     },
+
+    // Танихгүй бүх зам
+    { path: '*', element: <NotFound /> },
   ],
   {
     future: {

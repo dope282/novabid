@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "novabid-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "server", "run", "dev"],
+      "port": 4000
+    },
+    {
       "name": "novabid-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],

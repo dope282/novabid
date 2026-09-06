@@ -1,0 +1,26 @@
+services:
+  novabid:
+    build:
+      context: .
+      args:
+        # Google нэвтрэлт хэрэглэхгүй бол хоосон орхи — тэр товч харагдахгүй
+        VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    image: novabid:latest
+    container_name: novabid
+    restart: unless-stopped
+    ports:
+      # NAS-ын порт : контейнерийн порт. Reverse proxy-гийн ард 127.0.0.1:4000:4000 болгож болно.
+      - '${HOST_PORT:-4000}:4000'
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      # ЗААВАЛ өөрчилнө — үүнгүйгээр сервер асахгүй
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET шаардлагатай}
+      # Google нэвтрэлт (заавал биш). Frontend-ийн Client ID-тай ИЖИЛ байх ёстой.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      # Эхний ажиллуулахад админ бүртгэл үүснэ. Demo seed ажиллуулах шаардлагагүй.
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    volumes:
+      # SQLite + байршуулсан зураг. Контейнер шинэчлэгдсэн ч өгөгдөл үлдэнэ.
+      - ./data:/srv/data

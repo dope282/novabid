@@ -1,13 +1,17 @@
 import type { FastifyInstance } from 'fastify'
-import { db, getLot, type LotRow } from '../db.js'
-import { getUid, requireUser } from '../auth.js'
-import { ApiError, gatingStatus, lotSnapshot, placeBid, rejoinStage } from '../auction.js'
+import { db, getLot, getUser, type LotRow } from '../db.js'
+import { avatarColorOf, getUid, requireUser } from '../auth.js'
+import { ApiError, gatingStatus, lotSnapshot, placeBid, rejoinStage, roundSchedule } from '../auction.js'
+
+function uid2IsAdmin(uid: number | null): boolean {
+  return !!(uid && getUser(uid)?.is_admin)
+}
 
 function recentBids(lotId: number, limit = 6) {
   return (
     db
       .prepare(
-        `SELECT b.increment, b.price_after, b.created_at, u.name, u.email
+        `SELECT b.increment, b.price_after, b.created_at, u.id AS uid, u.name, u.email, u.avatar_color
          FROM bids b JOIN users u ON u.id = b.user_id
          WHERE b.lot_id = ? ORDER BY b.id DESC LIMIT ?`,
       )
@@ -15,11 +19,15 @@ function recentBids(lotId: number, limit = 6) {
       increment: number
       price_after: number
       created_at: number
+      uid: number
       name: string
       email: string
+      avatar_color: string | null
     }[]
   ).map((b) => ({
     user: b.name || b.email.split('@')[0],
+    // Өнгө нь хэрэглэгчээс хамаарна — жагсаалт дахь байрлалаас биш
+    color: avatarColorOf({ id: b.uid, avatar_color: b.avatar_color }),
     inc: b.increment,
     priceAfter: b.price_after,
     at: b.created_at,
@@ -27,17 +35,37 @@ function recentBids(lotId: number, limit = 6) {
 }
 
 export function lotRoutes(app: FastifyInstance) {
-  /** Идэвхтэй + удахгүй болох лотууд */
+  /**
+   * Идэвхтэй лотууд.
+   * `scheduled` нь нийтлээгүй ноорог — админ гараар л live болгодог тул энд буцаахгүй
+   * (буцаавал зарлаагүй барааны нэр, зураг ил гарна).
+   */
   app.get('/api/lots', async (req) => {
     const uid = getUid(req)
-    const lots = db
-      .prepare("SELECT * FROM lots WHERE status IN ('live','scheduled') ORDER BY id")
-      .all() as LotRow[]
+    const lots = db.prepare("SELECT * FROM lots WHERE status='live' ORDER BY id").all() as LotRow[]
+
+    // Сүүлд хаагдсан лотууд — нүүр хуудсанд "өмнөх дуудлага худалдаа" болж харагдана
+    const closedRows = db
+      .prepare(
+        `SELECT l.*, u.name AS winner_name, u.email AS winner_email
+         FROM lots l LEFT JOIN users u ON u.id = l.winner_user_id
+         WHERE l.status='closed'
+         ORDER BY COALESCE(l.closed_at, l.ends_at, l.created_at) DESC LIMIT 8`,
+      )
+      .all() as (LotRow & { winner_name: string | null; winner_email: string | null })[]
+
     return {
       serverNow: Date.now(),
-      lots: lots.map((l) => ({
-        ...lotSnapshot(l),
-        gating: l.status === 'live' ? gatingStatus(l, uid) : { canBid: false },
+      lots: lots.map((l) => ({ ...lotSnapshot(l), gating: gatingStatus(l, uid) })),
+      closed: closedRows.map((l) => ({
+        id: l.id,
+        code: l.code,
+        title: l.title,
+        image: l.image_url,
+        finalPrice: l.current_price,
+        bidCount: l.bid_count,
+        winner: l.winner_name || l.winner_email?.split('@')[0] || null,
+        closedAt: l.closed_at ?? l.ends_at,
       })),
     }
   })
@@ -48,11 +76,16 @@ export function lotRoutes(app: FastifyInstance) {
     const lot = getLot(id)
     if (!lot) return reply.code(404).send({ error: 'Лот олдсонгүй' })
     const uid = getUid(req)
+    // Ноорогийг зөвхөн админ урьдчилан харна
+    if (lot.status === 'scheduled' && !uid2IsAdmin(uid))
+      return reply.code(404).send({ error: 'Лот олдсонгүй' })
     return {
       serverNow: Date.now(),
       lot: lotSnapshot(lot),
       gating: gatingStatus(lot, uid),
       bids: recentBids(id),
+      // Round бүрийн товлосон эхлэх/дуусах цаг — хэрэглэгчид ил харагдана
+      schedule: roundSchedule(lot),
     }
   })
 

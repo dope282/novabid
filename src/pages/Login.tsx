@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { PageShell } from '../components/PageShell'
 import { api, ApiError } from '../lib/api'
 import { useUser } from '../user'
+import { GoogleSignInButton, googleEnabled } from '../components/GoogleSignInButton'
+import { ColorPicker } from '../components/ColorPicker'
 
 type Mode = 'login' | 'register' | 'verify'
 
@@ -27,11 +29,12 @@ const labelStyle: CSSProperties = {
 
 export function Login() {
   const navigate = useNavigate()
-  const { login, verify } = useUser()
+  const { login, loginWithGoogle, verify } = useUser()
   const [mode, setMode] = useState<Mode>('login')
   const [email, setEmail] = useState('bat.erdene@gmail.com')
   const [password, setPassword] = useState('12345678')
   const [name, setName] = useState('')
+  const [avatarColor, setAvatarColor] = useState('#3346E6')
   const [referralCode, setReferralCode] = useState('')
   const [code, setCode] = useState('')
   const [devCode, setDevCode] = useState<string | null>(null)
@@ -47,7 +50,13 @@ export function Login() {
         await login(email, password)
         navigate('/')
       } else if (mode === 'register') {
-        const res = await api.register({ email, password, name, referralCode: referralCode || undefined })
+        const res = await api.register({
+          email,
+          password,
+          name,
+          avatarColor,
+          referralCode: referralCode || undefined,
+        })
         setDevCode(res.devVerifyCode ?? null)
         if (res.devVerifyCode) setCode(res.devVerifyCode)
         setMode('verify')
@@ -57,6 +66,20 @@ export function Login() {
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Алдаа гарлаа. Сервер асаалттай юу?')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Google-ээс ирсэн ID token — шалгалт сервер дээр хийгдэнэ */
+  async function handleGoogle(credential: string) {
+    setError(null)
+    setBusy(true)
+    try {
+      await loginWithGoogle(credential, referralCode || undefined)
+      navigate('/')
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Google-ээр нэвтэрч чадсангүй')
     } finally {
       setBusy(false)
     }
@@ -102,6 +125,20 @@ export function Login() {
               : 'Лот бүр 1₮-өөс эхэлнэ. Bid хийхийн тулд бүртгүүлээрэй.'}
           </div>
 
+          {/* Google нэвтрэлт — зөвхөн VITE_GOOGLE_CLIENT_ID тохируулсан үед */}
+          {googleEnabled && mode !== 'verify' && (
+            <div style={{ marginBottom: 20 }}>
+              <GoogleSignInButton onCredential={handleGoogle} onError={setError} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 20 }}>
+                <div style={{ flex: 1, height: 1, background: 'var(--nb-line)' }} />
+                <span style={{ font: "600 10px 'JetBrains Mono'", letterSpacing: '.1em', color: 'var(--nb-ink-3)' }}>
+                  ЭСВЭЛ
+                </span>
+                <div style={{ flex: 1, height: 1, background: 'var(--nb-line)' }} />
+              </div>
+            </div>
+          )}
+
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {mode === 'verify' ? (
               <div>
@@ -123,10 +160,30 @@ export function Login() {
             ) : (
               <>
                 {mode === 'register' && (
-                  <div>
-                    <label style={labelStyle}>НЭР</label>
-                    <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Таны нэр" />
-                  </div>
+                  <>
+                    <div>
+                      <label style={labelStyle}>НЭР</label>
+                      <input
+                        style={inputStyle}
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="Таны нэр"
+                        maxLength={40}
+                        required
+                      />
+                      <div style={{ font: "500 10.5px 'JetBrains Mono'", color: 'var(--nb-ink-3)', marginTop: 5 }}>
+                        Bid хийхэд бусдад энэ нэр харагдана
+                      </div>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>ДҮРСНИЙ ӨНГӨ</label>
+                      <ColorPicker
+                        value={avatarColor}
+                        onChange={setAvatarColor}
+                        initial={name.trim()[0] || email.trim()[0] || '?'}
+                      />
+                    </div>
+                  </>
                 )}
                 <div>
                   <label style={labelStyle}>ИМЭЙЛ</label>

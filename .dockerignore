@@ -1,0 +1,26 @@
+node_modules
+server/node_modules
+dist
+server/dist
+server/public
+
+# Локал өгөгдөл — контейнерт орох ёсгүй (volume-оор холбоно)
+server/data
+
+# Нууц утгууд — Docker дээр env-ээр өгнө
+.env
+.env.*
+!.env.example
+server/.env
+server/.env.*
+!server/.env.example
+
+.git
+.gitignore
+.claude
+*.log
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+README.md
+server/README.md

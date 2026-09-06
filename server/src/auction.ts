@@ -1,5 +1,54 @@
-import { db, getLot, getUser, recordTxn, type LotRow } from './db.js'
+import { DEFAULT_ROUND_SEC, db, getLot, getUser, recordTxn, type LotRoundRow, type LotRow } from './db.js'
 import { broadcast } from './ws.js'
+import { avatarColorOf } from './auth.js'
+
+/** Лотын бүх Round тохиргоо */
+export function roundsOf(lotId: number): LotRoundRow[] {
+  return db
+    .prepare('SELECT * FROM lot_rounds WHERE lot_id=? ORDER BY round_no')
+    .all(lotId) as LotRoundRow[]
+}
+
+function roundAt(lotId: number, no: number): LotRoundRow | undefined {
+  return db.prepare('SELECT * FROM lot_rounds WHERE lot_id=? AND round_no=?').get(lotId, no) as
+    | LotRoundRow
+    | undefined
+}
+
+/** Тухайн Round дотор хийгдсэн bid-ийн тоо */
+function bidsInRound(lotId: number, roundNo: number): number {
+  return (db.prepare('SELECT COUNT(*) AS c FROM bids WHERE lot_id=? AND stage=?').get(lotId, roundNo) as {
+    c: number
+  }).c
+}
+
+/**
+ * Timer дээр гүйж байгаа хугацаа = СЭРГЭХ цонх.
+ * Round эхлэхэд болон bid ирэх бүрд эхнээсээ тавигдана.
+ * Энэ тэглэх үед аукцион дуусаж, сүүлд bid хийсэн хүн ялна.
+ */
+function resetTimer(round: LotRoundRow | undefined, now: number): number {
+  return now + (round?.reset_sec ?? 30) * 1000
+}
+
+/**
+ * Round бүрийн ТОВЛОСОН эхлэх/дуусах цаг — зөвхөн хэрэглэгчид харуулах зорилготой.
+ * `duration_sec`-ээр дараалуулан тооцно. Аукционы бодит явцад нөлөөлөхгүй:
+ * Round нь bid босгоор л дуусдаг, timer тэглэх нь аукционыг бүхэлд нь хаадаг.
+ * Round эрт дуусвал дараагийнх нь урагшилж дахин тооцогдоно.
+ */
+export function roundSchedule(lot: LotRow) {
+  const rounds = roundsOf(lot.id)
+  let cursor = lot.round_started_at ?? lot.starts_at ?? lot.created_at
+  return rounds.map((r) => {
+    if (r.round_no < lot.current_stage) {
+      return { round: r.round_no, startsAt: null, endsAt: null, done: true }
+    }
+    const startsAt = cursor
+    cursor = startsAt + r.duration_sec * 1000
+    return { round: r.round_no, startsAt, endsAt: cursor, done: false }
+  })
+}
 
 /** Оролцоогүй шатанд дахин орох хураамж (кредит) */
 export const REJOIN_COST = 5
@@ -15,17 +64,29 @@ export class ApiError extends Error {
 
 /** Клиент рүү буцаах лотын snapshot */
 export function lotSnapshot(lot: LotRow) {
+  const round = roundAt(lot.id, lot.current_stage)
   return {
     id: lot.id,
     code: lot.code,
     title: lot.title,
     subtitle: lot.subtitle,
+    description: lot.description,
+    image: lot.image_url,
     price: lot.current_price,
     status: lot.status,
     currentStage: lot.current_stage,
     totalStages: lot.total_stages,
-    softCloseSec: lot.soft_close_sec,
+    /** ОДООГИЙН Round дуусах хугацаа */
     endsAt: lot.ends_at,
+    /** Одоогийн Round-ын товлосон урт (progress bar-т) */
+    roundDurationSec: round?.duration_sec ?? DEFAULT_ROUND_SEC,
+    /** Bid ирэх бүрд сэргэх цонх — төгсгөлийн уралдаан */
+    roundResetSec: round?.reset_sec ?? 30,
+    roundStartedAt: lot.round_started_at,
+    /** Энэ Round-д хийгдсэн bid; босго null бол ХЯЗГААРГҮЙ */
+    roundBids: bidsInRound(lot.id, lot.current_stage),
+    roundBidsRequired: round && round.bids_required === 0 ? null : (round?.bids_required ?? lot.bids_per_stage),
+    startsAt: lot.starts_at,
     bidCount: lot.bid_count,
     winnerUserId: lot.winner_user_id,
   }
@@ -60,6 +121,10 @@ export const placeBid = db.transaction((userId: number, lotId: number, inc: numb
 
   const lot = getLot(lotId)
   if (!lot || lot.status !== 'live') throw new ApiError(400, 'Лот идэвхгүй байна')
+  // Engine 500мс тутам ажилладаг тул хугацаа дуусаад хаагдаагүй байх цонх үүснэ.
+  // Тэр зайд ирсэн bid-ийг хүлээж авбал аукцион дуусашгүй сунана.
+  if (lot.ends_at !== null && lot.ends_at <= Date.now())
+    throw new ApiError(400, 'Аукционы хугацаа дууссан байна')
 
   const user = getUser(userId)
   if (!user) throw new ApiError(401, 'Нэвтрэх шаардлагатай')
@@ -77,14 +142,18 @@ export const placeBid = db.transaction((userId: number, lotId: number, inc: numb
   const stage = lot.current_stage
   const newPrice = lot.current_price + inc
   const newBidCount = lot.bid_count + 1
-  // Шат урагшлах: bid-ийн тоо шатны хэмжээнд хүрмэгц
-  const newStage = Math.min(lot.total_stages, Math.floor(newBidCount / lot.bids_per_stage) + 1)
-  const endsAt = now + lot.soft_close_sec * 1000
+
+  // Bid бүрд сэргэх timer эхнээсээ. Энэ тэглэвэл аукцион дуусна.
+  const round = roundAt(lotId, stage)
+  const endsAt = resetTimer(round, now)
 
   db.prepare('UPDATE users SET credits = credits - 1 WHERE id = ?').run(userId)
-  db.prepare(
-    'UPDATE lots SET current_price=?, bid_count=?, current_stage=?, ends_at=? WHERE id=?',
-  ).run(newPrice, newBidCount, newStage, endsAt, lotId)
+  db.prepare('UPDATE lots SET current_price=?, bid_count=?, ends_at=? WHERE id=?').run(
+    newPrice,
+    newBidCount,
+    endsAt,
+    lotId,
+  )
   db.prepare(
     'INSERT INTO bids (lot_id, user_id, increment, price_after, stage, created_at) VALUES (?,?,?,?,?,?)',
   ).run(lotId, userId, inc, newPrice, stage, now)
@@ -93,26 +162,40 @@ export const placeBid = db.transaction((userId: number, lotId: number, inc: numb
   ).run(lotId, userId, stage, 'bid')
   recordTxn(userId, 'bid', { credits: -1, meta: JSON.stringify({ lotId, inc }) })
 
-  const updated = getLot(lotId)!
   broadcast({
     type: 'bid',
     lotId,
-    price: updated.current_price,
-    endsAt: updated.ends_at,
-    stage: updated.current_stage,
-    bidCount: updated.bid_count,
-    bid: { user: getUser(userId)!.name || getUser(userId)!.email, inc },
+    price: newPrice,
+    endsAt,
+    stage,
+    bidCount: newBidCount,
+    bid: {
+      user: user.name || user.email.split('@')[0],
+      color: avatarColorOf(user),
+      inc,
+    },
   })
-  return { lot: lotSnapshot(updated), credits: getUser(userId)!.credits }
+
+  // Bid босго давбал дараагийн Round эхэлнэ. Сүүлийн Round дээр давбал аукцион дуусна.
+  // bids_required = 0 бол ХЯЗГААРГҮЙ — Round зөвхөн timer тэглэхэд (=аукцион хаагдахад) дуусна.
+  const required = round?.bids_required ?? lot.bids_per_stage
+  if (required > 0 && bidsInRound(lotId, stage) >= required) advanceRound(getLot(lotId)!)
+
+  return { lot: lotSnapshot(getLot(lotId)!), credits: getUser(userId)!.credits }
 })
 
 /** Оролцоогүй шатанд 5 кредит төлж орох */
 export const rejoinStage = db.transaction((userId: number, lotId: number) => {
   const lot = getLot(lotId)
   if (!lot || lot.status !== 'live') throw new ApiError(400, 'Лот идэвхгүй байна')
+  if (lot.ends_at !== null && lot.ends_at <= Date.now())
+    throw new ApiError(400, 'Аукционы хугацаа дууссан байна')
 
   const user = getUser(userId)
   if (!user) throw new ApiError(401, 'Нэвтрэх шаардлагатай')
+  // placeBid нь verified шаарддаг тул энд шалгахгүй бол хэрэглэгч 5 кредит
+  // төлчхөөд bid хийж чадахгүй үлдэнэ.
+  if (!user.verified) throw new ApiError(403, 'Имэйлээ баталгаажуулна уу')
 
   const gate = gatingStatus(lot, userId)
   if (gate.canBid) throw new ApiError(400, 'Та энэ шатанд аль хэдийн оролцох эрхтэй')
@@ -138,9 +221,10 @@ const closeLot = db.transaction((lot: LotRow) => {
     .get(lot.id) as { user_id: number } | undefined
   const winnerId = lastBid?.user_id ?? null
 
-  db.prepare('UPDATE lots SET status=?, winner_user_id=? WHERE id=?').run(
+  db.prepare('UPDATE lots SET status=?, winner_user_id=?, closed_at=? WHERE id=?').run(
     'closed',
     winnerId,
+    Date.now(),
     lot.id,
   )
 
@@ -171,13 +255,87 @@ const closeLot = db.transaction((lot: LotRow) => {
   })
 })
 
-/** Хугацаа дууссан live лотуудыг хаадаг tick */
+/**
+ * Round дууслаа — дараагийнх руу шилжих эсвэл (сүүлийнх бол) лотыг хаана.
+ * Хугацаа дуусах болон bid босго хүрэх хоёулаа энд ирнэ.
+ */
+function advanceRound(lot: LotRow) {
+  // Сүүлийн Round дээр босго давсан бол үргэлжлэх Round үлдээгүй — аукцион хаагдана
+  if (lot.current_stage >= lot.total_stages) {
+    closeLot(lot)
+    return
+  }
+  const next = lot.current_stage + 1
+  const round = roundAt(lot.id, next)
+  const now = Date.now()
+  const endsAt = resetTimer(round, now)
+  db.prepare('UPDATE lots SET current_stage=?, round_started_at=?, ends_at=? WHERE id=?').run(
+    next,
+    now,
+    endsAt,
+    lot.id,
+  )
+
+  broadcast({
+    type: 'round',
+    lotId: lot.id,
+    stage: next,
+    endsAt,
+    roundResetSec: round?.reset_sec ?? 30,
+    roundBidsRequired: round?.bids_required ?? lot.bids_per_stage,
+  })
+}
+
+/** Админ гараар лот хаах — хугацаа дуусахыг хүлээхгүй */
+export function closeLotNow(lotId: number) {
+  const lot = getLot(lotId)
+  if (!lot) throw new ApiError(404, 'Лот олдсонгүй')
+  if (lot.status !== 'live') throw new ApiError(400, 'Зөвхөн идэвхтэй лотыг хаана')
+  closeLot(lot)
+  return lotSnapshot(getLot(lotId)!)
+}
+
+/**
+ * Сэргэх timer тэглэсэн лотыг ХААНА — хэн ч bid хийлгүй өнгөрсөн тул
+ * хамгийн сүүлд bid хийсэн хүн ялна. (Round ахих нь зөвхөн bid босгоор болно.)
+ */
 export function startEngine() {
   setInterval(() => {
     const now = Date.now()
+
+    // Хуваарьт ноорог лотыг товлосон цагт нь автоматаар эхлүүлнэ
+    const due = db
+      .prepare("SELECT * FROM lots WHERE status='scheduled' AND starts_at IS NOT NULL AND starts_at <= ?")
+      .all(now) as LotRow[]
+    for (const lot of due) startLot(lot)
+
     const expired = db
       .prepare("SELECT * FROM lots WHERE status='live' AND ends_at IS NOT NULL AND ends_at <= ?")
       .all(now) as LotRow[]
     for (const lot of expired) closeLot(lot)
+
+    // Хугацаа нь дууссан санал хураалтыг хаана — эс бөгөөс админд "НЭЭЛТТЭЙ" гэж
+    // харагдсаар, нүүр хуудсанд санал өгөх боломжгүй виджет үлдэнэ
+    db.prepare("UPDATE polls SET status='closed' WHERE status='open' AND closes_at IS NOT NULL AND closes_at <= ?")
+      .run(now)
   }, 500)
+}
+
+/** Ноорог лотыг live болгож Round 1-ийг эхлүүлнэ */
+export function startLot(lot: LotRow) {
+  const now = Date.now()
+  const round = roundAt(lot.id, 1)
+  const endsAt = resetTimer(round, now)
+  db.prepare(
+    "UPDATE lots SET status='live', current_stage=1, round_started_at=?, ends_at=? WHERE id=?",
+  ).run(now, endsAt, lot.id)
+
+  broadcast({
+    type: 'round',
+    lotId: lot.id,
+    stage: 1,
+    endsAt,
+    roundResetSec: round?.reset_sec ?? 30,
+    roundBidsRequired: round?.bids_required ?? lot.bids_per_stage,
+  })
 }

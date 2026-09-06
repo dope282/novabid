@@ -17,6 +17,8 @@ interface SessionCtx {
   credits: number
   tokens: number
   login: (email: string, password: string) => Promise<void>
+  /** Google ID token-оор нэвтрэх / бүртгүүлэх */
+  loginWithGoogle: (credential: string, referralCode?: string) => Promise<void>
   verify: (email: string, code: string) => Promise<void>
   logout: () => void
   /** Серверээс хэрэглэгчийн мэдээллийг дахин ачаалах (bid/topup дараа) */
@@ -61,6 +63,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setUserState(user)
   }, [])
 
+  const loginWithGoogle = useCallback(async (credential: string, referralCode?: string) => {
+    const { token, user } = await api.googleLogin({ credential, referralCode })
+    setToken(token)
+    setUserState(user)
+  }, [])
+
   const verify = useCallback(async (email: string, code: string) => {
     const { token, user } = await api.verify({ email, code })
     setToken(token)
@@ -80,12 +88,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
       credits: user?.credits ?? 0,
       tokens: user?.tokens ?? 0,
       login,
+      loginWithGoogle,
       verify,
       logout,
       refresh,
       setUser,
     }),
-    [user, loading, login, verify, logout, refresh, setUser],
+    [user, loading, login, loginWithGoogle, verify, logout, refresh, setUser],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

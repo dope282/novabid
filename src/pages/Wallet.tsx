@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PageShell } from '../components/PageShell'
 import { PageHead } from '../components/PageHead'
-import { creditPacks } from '../data/economy'
-import { api } from '../lib/api'
+import { api, type CreditPack } from '../lib/api'
+import { formatTugrik } from '../lib/format'
 import { useUser } from '../user'
 
 interface ServerTxn {
@@ -25,6 +25,7 @@ function mapTxn(t: ServerTxn): { title: string; meta: string; amount: string; po
     token_earn: 'Token авсан (consolation)',
     token_spend: 'Token зарцуулсан',
     referral: 'Урилгын урамшуулал',
+    admin_adjust: 'Админ засвар',
   }
   const positive = t.credits > 0 || t.tokens > 0
   const amount =
@@ -35,7 +36,9 @@ function mapTxn(t: ServerTxn): { title: string; meta: string; amount: string; po
 export function Wallet() {
   const navigate = useNavigate()
   const { credits, isAuthed, refresh } = useUser()
-  const [selected, setSelected] = useState('p4')
+  // Багцууд серверээс ирнэ — админаас өөрчилсөн үнэ шууд тусна
+  const [packs, setPacks] = useState<CreditPack[]>([])
+  const [selected, setSelected] = useState<number | null>(null)
   const [txns, setTxns] = useState<ServerTxn[]>([])
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -55,18 +58,35 @@ export function Wallet() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthed])
 
+  useEffect(() => {
+    let alive = true
+    api
+      .packs()
+      .then(({ packs }) => {
+        if (!alive) return
+        setPacks(packs)
+        // Анхдагчаар "хамгийн ашигтай", эс бөгөөс хамгийн том багц
+        setSelected(packs.find((p) => p.best)?.id ?? packs[packs.length - 1]?.id ?? null)
+      })
+      .catch(() => alive && setPacks([]))
+    return () => {
+      alive = false
+    }
+  }, [])
+
   async function handleTopup() {
     if (!isAuthed) {
       navigate('/login')
       return
     }
+    if (selected === null) return
     setBusy(true)
     setToast(null)
     try {
       await api.topup(selected)
       await refresh()
       await loadTxns()
-      const pack = creditPacks.find((p) => p.id === selected)
+      const pack = packs.find((p) => p.id === selected)
       setToast(`${pack?.credits ?? ''} кредит амжилттай нэмэгдлээ ✓`)
     } catch {
       setToast('Төлбөр амжилтгүй боллоо')
@@ -105,7 +125,7 @@ export function Wallet() {
                 gap: 12,
               }}
             >
-              {creditPacks.map((p) => {
+              {packs.map((p) => {
                 const active = selected === p.id
                 return (
                   <button
@@ -151,9 +171,11 @@ export function Wallet() {
                     <div style={{ font: "600 12px 'JetBrains Mono'", color: 'var(--nb-ink-2)' }}>
                       кредит
                     </div>
-                    <div style={{ font: "700 17px 'Rubik', sans-serif", marginTop: 6 }}>{p.price}</div>
+                    <div style={{ font: "700 17px 'Rubik', sans-serif", marginTop: 6 }}>
+                      {formatTugrik(p.priceMnt)}
+                    </div>
                     <div style={{ font: "500 10px 'JetBrains Mono'", color: 'var(--nb-ink-3)' }}>
-                      {p.perCredit}
+                      {formatTugrik(p.perCredit)} / кредит
                     </div>
                   </button>
                 )
